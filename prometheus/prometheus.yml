@@ -1,7 +1,23 @@
 global:
-  scrape_interval: 15s
+  scrape_interval: 15s  # Intervalle de récupération des métriques
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']  # Alertmanager's container name and port
+
+rule_files:
+  - "/etc/prometheus/alert.rules.yml" # Path to your alerting rules file
+  
 scrape_configs:
-  - job_name: "nodejs-app"
+  - job_name: 'node-app'
     static_configs:
-      - targets: ["node-app:3000"] # Use the service name defined in Docker Compose
+      - targets: ['node-app:3001']  # Si votre app expose des métriques avec prom-client
+
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']  # Récupération des métriques système
+
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']  # Récupération des métriques PostgreSQL

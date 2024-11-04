@@ -1,0 +1,8 @@
+route:
+  receiver: 'slack-notifications'
+
+receivers:
+  - name: 'slack-notifications'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/your/webhook/url'
+        channel: '#alerts'

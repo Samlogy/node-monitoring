@@ -1,94 +1,111 @@
 const express = require("express");
-const promBundle = require("express-prom-bundle");
 const client = require("prom-client");
-const os = require("os");
 
-const metricsMiddleware = promBundle({ includeMethod: true });
-
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 const app = express();
-app.use(metricsMiddleware);
 
-const numberOfVisitors = new client.Counter({
-  name: "app_visitors_total",
-  help: "Total number of visitors to the app",
+const register = new client.Registry();
+client.collectDefaultMetrics({ register }); // Collecte des métriques par défaut (CPU, RAM, etc.)
+
+// Déclaration de métriques spécifiques
+
+// Compteur des requêtes HTTP
+const httpRequestCounter = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Nombre total de requêtes HTTP',
+  labelNames: ['method', 'endpoint'],
 });
 
-// Custom metric: CPU, Storage, RAM usage
-const cpuUsage = new client.Gauge({
-  name: "cpu_usage_percent",
-  help: "CPU usage percentage",
+// Histogramme pour mesurer la latence des requêtes HTTP
+const httpRequestDuration = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Durée des requêtes HTTP en secondes',
+  labelNames: ['method', 'endpoint'],
+  buckets: [0.1, 0.5, 1, 2, 5] // Buckets pour la latence
 });
 
-const storageUsage = new client.Gauge({
-  name: "storage_usage_bytes",
-  help: "Storage usage in bytes",
+// Gauge pour mesurer l'usage de la mémoire
+const memoryUsageGauge = new client.Gauge({
+  name: 'nodejs_memory_usage_bytes',
+  help: 'Usage de la mémoire en bytes',
+  labelNames: ['type']
 });
 
-const ramUsage = new client.Gauge({
-  name: "ram_usage_bytes",
-  help: "RAM usage in bytes",
+// Compteur pour un endpoint spécifique (e.g., /hello)
+// const helloRequestCounter = new client.Counter({
+//   name: 'endpoint_requests_total',
+//   help: 'Nombre total de requêtes pour un endpount specifique',
+// });
+
+const helloRequestCounter = new client.Counter({
+  name: `hello_requests_total`,
+  help: 'Nombre total de requêtes pour un endpount specifique',
+})
+
+// Route de métriques pour Prometheus
+app.get('/metrics', async (req, res) => {
+  httpRequestCounter.inc({ method: req.method, endpoint: req.path });
+  const memUsage = process.memoryUsage();
+  
+  // Mise à jour de l'usage de la mémoire (RAM)
+  memoryUsageGauge.set({ type: 'rss' }, memUsage.rss);
+  memoryUsageGauge.set({ type: 'heapTotal' }, memUsage.heapTotal);
+  memoryUsageGauge.set({ type: 'heapUsed' }, memUsage.heapUsed);
+  
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
 });
 
-const diskUsageGauge = new prometheus.Gauge({
-  name: "disk_usage",
-  help: "Disk Usage in Bytes",
+register.registerMetric(httpRequestCounter);
+register.registerMetric(httpRequestDuration);
+register.registerMetric(memoryUsageGauge);
+register.registerMetric(helloRequestCounter);
+
+
+// const httpRequestDurationMiddleware = (req, res, next) => {
+//   const end = httpRequestDuration.startTimer({ method: req.method, endpoint: req.path });
+//   res.on('finish', () => {
+//     end(); // Fin du chronométrage lorsque la requête est terminée
+//   });
+//   next();
+// }
+
+// // Middleware pour mesurer la durée des requêtes HTTP
+// app.use(httpRequestDurationMiddleware);
+
+const middlewareHttpRequestDuration = (req, res, next) => {
+  // Compter toutes les requêtes
+  httpRequestCounter.inc({ method: req.method, endpoint: req.path });
+
+  // Démarrer le chronométrage des requêtes
+  const end = httpRequestDuration.startTimer({ method: req.method, endpoint: req.path });
+
+  // Terminer le chronométrage lorsque la requête est finie
+  res.on('finish', () => {
+    end(); // Fin du chronométrage
+  });
+
+  next();
+}
+
+app.use(middlewareHttpRequestDuration);
+
+
+app.get('/health', (req, res) => {
+  res.send('OK !');
 });
 
-const networkTrafficCounter = new prometheus.Counter({
-  name: "network_traffic",
-  help: "Network Traffic in Bytes",
+app.get('/', (req, res) => {
+  res.send('Node App => monitoring !');
 });
 
-app.get("/", (req, res) => {
-  // Increment number of visitors
-  numberOfVisitors.inc();
-
-  // Endpoint logic
-  // Update CPU, Storage, RAM metrics
-  const cpuPercentage = os.loadavg()[0] * 100; // Example CPU usage calculation
-  const totalMemory = os.totalmem();
-  const freeMemory = os.freemem();
-  const usedMemory = totalMemory - freeMemory;
-
-  cpuUsage.set(cpuPercentage);
-  storageUsage.set(1000000000); // Example storage usage in bytes
-  ramUsage.set(usedMemory);
-
-  // Update metrics
-  // diskUsageGauge.set(getDiskUsageInBytes());
-  // networkTrafficCounter.inc(getNetworkTrafficInBytes());
-
-  res.send("Hello World!");
+app.get('/hello', (req, res) => {
+  helloRequestCounter.inc()
+  res.send('Hello, world!');
 });
 
-app.get("/health", (req, res) => {
-  res.send("OK!");
-});
-
-// Metrics Endpoint for Prometheus
-app.get("/metrics", (req, res) => {
-  res.set("Content-Type", client.register.contentType);
-  res.end(client.register.metrics());
-});
-
-app.get("/test-scenario", (req, res) => {
-  // Simulate a test scenario: Increase traffic by incrementing visitors
-  for (let i = 0; i < 100; i++) {
-    numberOfVisitors.inc();
-  }
-
-  // Simulate high CPU usage (80%)
-  cpuUsage.set(80);
-
-  // Simulate increased storage and RAM usage
-  storageUsage.set(2000000000); // Example: Increased storage usage in bytes
-  ramUsage.set(1500000000); // Example: Increased RAM usage in bytes
-
-  res.send("Test scenario executed: Increased traffic and metrics.");
-});
 
 app.listen(PORT, () => {
-  console.log("Server is running on port: ", PORT);
+  console.log(`Node App => ${PORT}`);
 });

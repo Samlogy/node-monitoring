@@ -1,38 +1,97 @@
-version: "3"
+
 services:
   node-app:
     build:
       context: ./app
     ports:
-      - "3000:3000"
+      - "3001:3001"
     networks:
-      - monitoring
+      - m
 
   prometheus:
     image: prom/prometheus:v2.48.0-rc.2
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml
     ports:
       - "9090:9090"
     networks:
-      - monitoring
+      - m
     depends_on:
       - node-app
+      - postgres
+      - node-exporter
+      - alertmanager
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+
+  alertmanager:
+    image: prom/alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+    networks:
+      - m
 
   grafana:
     image: grafana/grafana
     ports:
-      - "3001:3000"
+      - "3000:3000"
     networks:
-      - monitoring
+      - m
     volumes:
-      - ./grafana/datasources:/etc/grafana/provisioning/datasources
-      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+    - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+    - ./grafana/dashboards-data:/var/lib/grafana/dashboards
+    # volumes:
+    #   - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    #   - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin # Change this password for security
+      - GF_SECURITY_ADMIN_PASSWORD=admin
     depends_on:
       - prometheus
 
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: mydb
+    ports:
+      - "5433:5432"
+    networks:
+      - m
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    labels:
+      - "prometheus-job=postgres"
+
+  node-exporter:
+    image: prom/node-exporter
+    ports:
+      - "9100:9100"
+    networks:
+      - m
+    expose:
+      - "9100"
+
+  postgres-exporter:
+    image: wrouesnel/postgres_exporter
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://myuser:password@postgres:5432/mydb?sslmode=disable"
+    networks:
+      - m
+    expose:
+      - "9187"
+    depends_on:
+      - postgres
+
+
 networks:
-  monitoring:
+  m:
     driver: bridge
