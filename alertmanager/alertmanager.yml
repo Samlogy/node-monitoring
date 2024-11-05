@@ -1,8 +1,22 @@
 route:
-  receiver: 'slack-notifications'
+  receiver: 'telegram-notifications'
 
 receivers:
-  - name: 'slack-notifications'
-    slack_configs:
-      - api_url: 'https://hooks.slack.com/services/your/webhook/url'
-        channel: '#alerts'
+- name: 'telegram-notifications'
+  webhook_configs:
+  - url: 'https://api.telegram.org/bot<YOUR_BOT_TOKEN>/sendMessage'
+    send_resolved: true
+    http_config:
+      basic_auth:
+        username: 'bot'
+        password: '<YOUR_BOT_TOKEN>'
+    params:
+      chat_id: ['<YOUR_CHAT_ID>']
+      parse_mode: ['HTML']
+      text: |
+        ALERT: {{ .CommonAnnotations.summary }}{{ if .CommonLabels.severity }} (Severity: {{ .CommonLabels.severity }}){{ end }}
+        Details:
+        - Alert Name: {{ .CommonLabels.alertname }}
+        - Instance: {{ .CommonLabels.instance }}
+        - Description: {{ .CommonAnnotations.description }}
+        - Status: {{ .Status }}

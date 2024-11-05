@@ -1,120 +1,67 @@
-# groups:
-#   - name: cpu_usage_alert
-#     rules:
-#       - alert: HighCPUUsage
-#         expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
-#         for: 5m
-#         labels:
-#           severity: warning
-#         annotations:
-#           summary: "High CPU usage detected on instance {{ $labels.instance }}"
-#           description: "CPU usage has been above 80% for the past 5 minutes on instance {{ $labels.instance }}"
-
-
-  # - name: node_alerts
-  #   rules:
-  #   - alert: HighCPUUsage
-  #     expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[1m])) * 100) > 80
-  #     for: 5m
-  #     labels:
-  #       severity: warning
-  #     annotations:
-  #       summary: "High CPU usage detected"
-  #       description: "CPU usage is above 80% for 5 minutes."
-
-  #   - alert: HighMemoryUsage
-  #     expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 0.2
-  #     for: 5m
-  #     labels:
-  #       severity: warning
-  #     annotations:
-  #       summary: "High memory usage detected"
-  #       description: "Memory usage is above 80% for 5 minutes."
-
-  #   - alert: HighDiskUsage
-  #     expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.2
-  #     for: 5m
-  #     labels:
-  #       severity: warning
-  #     annotations:
-  #       summary: "High disk usage detected"
-  #       description: "Disk usage is above 80% for 5 minutes."
-
 groups:
-  - name: http_request_duration_seconds
+  - name: node-app-alerts
     rules:
-    - alert: HighRequestLatency
-      expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
-      for: 5m
-      labels:
-        severity: warning
-      annotations:
-        summary: "High Request Latency ({{ $value }}s)"
-        description: "Request latency is above 500ms for more than 5 minutes."
-    
-    - alert: NoTraffic
-      expr: rate(http_requests_total[5m]) == 0
-      for: 10m
-      labels:
-        severity: critical
-      annotations:
-        summary: "No incoming traffic"
-        description: "No HTTP requests received for more than 10 minutes."
+      - alert: HighCpuUsage
+        expr: (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)) > 0.8
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is above 80% (current value: {{ $value }})"
 
-    - alert: HighErrorRate
-      expr: rate(http_requests_total{status_code=~"5.."}[5m]) > 0.05
-      for: 10m
-      labels:
-        severity: critical
-      annotations:
-        summary: "High 5xx error rate ({{ $value }} errors/s)"
-        description: "More than 5% of requests are returning 5xx errors."
+      - alert: HighMemoryUsage
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Memory usage on {{ $labels.instance }}"
+          description: "Memory available is less than 20% (current value: {{ $value }})"
 
-  - name: Node_exporter
+      - alert: HighDiskUsage
+        expr: node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes < 0.2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Disk usage on {{ $labels.instance }}"
+          description: "Disk space is less than 20% available (current value: {{ $value }})"
+
+      - alert: HighNetworkUsage
+        expr: sum(rate(node_network_receive_bytes_total[5m])) by (instance) > 1e8
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Network Traffic on {{ $labels.instance }}"
+          description: "Network traffic is high (current value: {{ $value }})"
+
+  - name: postgres-alerts
     rules:
-    - alert: HighCPUUsage
-      expr: (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)) > 0.8
-      for: 5m
-      labels:
-        severity: warning
-      annotations:
-        summary: "High CPU Usage ({{ $value }})"
-        description: "CPU usage is above 80% for more than 5 minutes."
-    
-    - alert: LowMemory
-      expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 0.2
-      for: 5m
-      labels:
-        severity: warning
-      annotations:
-        summary: "Low Memory ({{ $value }})"
-        description: "Available memory is below 20%."
+      - alert: PostgresHighConnectionCount
+        expr: pg_stat_database_numbackends{datname!~"template[0-9]+"} > 80
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High PostgreSQL connection count on {{ $labels.instance }}"
+          description: "PostgreSQL is handling too many connections (current value: {{ $value }})"
 
-    - alert: HighDiskUsage
-      expr: (node_filesystem_size_bytes - node_filesystem_avail_bytes) / node_filesystem_size_bytes > 0.8
-      for: 5m
-      labels:
-        severity: warning
-      annotations:
-        summary: "High Disk Usage ({{ $value }})"
-        description: "Disk usage is above 80%."
+      - alert: PostgresSlowQueries
+        expr: rate(pg_stat_activity_backend_start[5m]) > 100
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Slow queries in PostgreSQL on {{ $labels.instance }}"
+          description: "PostgreSQL is experiencing a high rate of slow queries (current value: {{ $value }})"
 
-  - name: postgres_exporter
-    rules:
-    - alert: HighPostgresConnections
-      expr: pg_exporter_connections > 90
-      for: 5m
-      labels:
-        severity: warning
-      annotations:
-        summary: "High number of PostgreSQL connections"
-        description: "The number of connections to PostgreSQL is high."
-
-    - alert: SlowQueries
-      expr: rate(pg_stat_statements_total_time[5m]) > 0.5
-      for: 5m
-      labels:
-        severity: critical
-      annotations:
-        summary: "Slow Queries Detected"
-        description: "Queries taking longer than 500ms are detected."
+      - alert: PostgresHighTransactionRate
+        expr: rate(pg_stat_database_xact_commit[5m]) > 1000
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High transaction rate in PostgreSQL on {{ $labels.instance }}"
+          description: "PostgreSQL transaction rate is high (current value: {{ $value }})"

@@ -19,9 +19,10 @@ services:
       - m
     depends_on:
       - node-app
-      - postgres
+      # - postgres
       - node-exporter
-      - alertmanager
+      - postgres-exporter
+      # - alertmanager
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
 
